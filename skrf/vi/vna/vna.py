@@ -106,7 +106,7 @@ class VNA:
             new_channel = self.Channel(self, cnum, cname)
             setattr(self, ch_id, new_channel)
 
-        def delete_channel(self, cnum: str) -> None:
+        def delete_channel(self, cnum: int) -> None:
             ch_id = f"ch{cnum}"
             if not hasattr(self, ch_id):
                 return
@@ -123,10 +123,17 @@ class VNA:
                 raise AttributeError(f"{type(self).__name__} has no attribute {k}")
             return getattr(self.active_channel, k)
 
+        def __setattr__(self, k, v):
+            if hasattr(self.Channel, k):
+                setattr(self.active_channel, k, v)
+            else:
+                super().__setattr__(k, v)
+
         cls.create_channel = create_channel
         cls.delete_channel = delete_channel
         cls.channels = property(_channels)
         cls.__getattr__ = __getattr__
+        cls.__setattr__ = __setattr__
 
     def _setup_scpi(self) -> None:
         self.__class__.wait_for_complete = lambda self: self.query("*OPC?")
