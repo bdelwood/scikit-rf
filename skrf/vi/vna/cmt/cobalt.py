@@ -34,6 +34,10 @@ class TraceParameter(Enum):
     S12 = "S12"
     S21 = "S21"
     S22 = "S22"
+    A = "A"
+    B = "B"
+    R1 = "R1"
+    R2 = "R2"
 
 
 class TriggerSource(Enum):
