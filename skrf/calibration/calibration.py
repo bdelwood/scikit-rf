@@ -1677,7 +1677,7 @@ class TwelveTerm(Calibration):
         trans_thres: float
             The minimum transmission magnitude (in dB) that is
             the threshold for categorizing a transmissive standard.
-            Compared to the measured s21,s12 mean over frequency
+            Compared to the measured s21,s12 averaged over frequency
             Only use if n_thrus=None.
 
         isolation : :class:`~skrf.network.Network` object
