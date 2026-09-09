@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import sys
 import typing
 from enum import Enum
+from logging import getLogger
 
 import skrf
 from skrf.vi import vna
@@ -19,6 +19,8 @@ if typing.TYPE_CHECKING:
     from numpy.typing import NDArray
 
 import re
+
+logger = getLogger(__name__)
 
 
 class SweepType(Enum):
@@ -320,18 +322,19 @@ class Cobalt(vna.VNA):
     def __init__(self, address: str, backend: str = "@py") -> None:
         super().__init__(address, backend)
 
-        self._resource.read_termination = "\n"
-        self._resource.write_termination = "\n"
+        try:
+            self._resource.read_termination = "\n"
+            self._resource.write_termination = "\n"
 
-        self.allocate_channels(1)
-        self.active_channel = self.ch1
+            self.allocate_channels(1)
+            self.active_channel = self.ch1
 
-        self.model = self.id.strip().split(", ")[1]
-        if self.model not in self._models:
-            print(
-                f"WARNING: This model ({self.model}) has not been tested with scikit-rf.",
-                file=sys.stderr,
-            )
+            self.model = self.id.strip().split(", ")[1]
+            if self.model not in self._models:
+                logger.warning("This model (%s) has not been tested with scikit-rf.", self.model)
+        except Exception:
+            self._resource.close()
+            raise
 
     def _supports(self, feature: str) -> bool:
         model_config = self._models.get(self.model, self._models["default"])
@@ -531,6 +534,6 @@ class Cobalt(vna.VNA):
         # Analyzer needs to have have trigger source BUS in order to trigger using SCPI/COM commands.
         self.trigger_source = TriggerSource.BUS
         # put into continuous mode
-        self.trigger_cont = True
+        self.active_channel.trigger_cont = True
         scpi_cmd = "TRIG:SING" if not immediate else "TRIG"
         self.write(scpi_cmd)

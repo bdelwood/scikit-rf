@@ -8,8 +8,14 @@ import pytest
 
 import skrf
 from skrf.vi.validators import ValidationError
-from skrf.vi.vna import Channel, ValuesFormat
-from skrf.vi.vna.cmt.cobalt import Cobalt, SweepType, TraceParameter, TriggerScope, TriggerSource
+
+try:
+    from pyvisa.errors import VisaIOError
+
+    from skrf.vi.vna import Channel, ValuesFormat
+    from skrf.vi.vna.cmt.cobalt import Cobalt, SweepType, TraceParameter, TriggerScope, TriggerSource
+except ImportError:
+    pytest.skip("pyvisa not installed", allow_module_level=True)
 
 
 @pytest.fixture(scope="function")
@@ -17,10 +23,16 @@ def analyzer():
     addr = os.getenv("PYTEST_CMT_COBALT_VI_ADDR", "TCPIP0::127.0.0.1::5025::SOCKET")
     try:
         cobalt = Cobalt(addr)
-        yield cobalt
-        cobalt.reset()
-    except Exception as e:
+    except (OSError, VisaIOError) as e:
         pytest.skip(f"Skipping tests: could not connect to S2 Control Software at {addr} ({e})")
+
+    try:
+        yield cobalt
+    finally:
+        try:
+            cobalt.reset()
+        finally:
+            cobalt._resource.close()
 
 
 def test_get_id(analyzer):
@@ -80,8 +92,8 @@ def test_sweep_type(analyzer):
     ch.sweep_type = SweepType.LOG
     assert ch.sweep_type == SweepType.LOG
 
-    ch.sweet_type = SweepType.LINEAR
-    assert ch.sweet_type == SweepType.LINEAR
+    ch.sweep_type = SweepType.LINEAR
+    assert ch.sweep_type == SweepType.LINEAR
 
 
 def test_averaging(analyzer):
