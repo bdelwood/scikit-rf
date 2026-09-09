@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import operator
 import typing
 from enum import Enum
 from logging import getLogger
+
+import numpy as np
 
 import skrf
 from skrf.vi import vna
@@ -67,7 +70,7 @@ class TriggerSource(Enum):
 
 class TriggerScope(Enum):
     ALL = "ALL"
-    ACTIVE = "ACTIVE"
+    ACTIVE = "ACT"
 
 
 class TriggerState(Enum):
@@ -260,13 +263,7 @@ class Cobalt(vna.VNA):
             skrf.Frequency
                 Frequency array.
             """
-            f = skrf.Frequency(
-                start=self.freq_start,
-                stop=self.freq_stop,
-                npoints=self.npoints,
-                unit="Hz",
-            )
-            return f
+            return skrf.Frequency.from_f(self.query_values(f"SENS{self.cnum}:FREQ:DATA?"), unit="Hz")
 
         @frequency.setter
         def frequency(self, f: skrf.Frequency) -> None:
@@ -328,8 +325,71 @@ class Cobalt(vna.VNA):
 
             return ntwk
 
-        def get_snp_network(self) -> skrf.Network:  # noqa: D102
-            raise NotImplementedError
+        def get_snp_network(self, ports: typing.Sequence[int] | None = None) -> skrf.Network:
+            """Measure S-parameters for the requested ports.
+
+            Parameters
+            ----------
+            ports : sequence of int, optional
+                Port numbers in network order. Defaults to (1, 2).
+
+            Returns
+            -------
+            skrf.Network
+                Corrected S-parameters at the measured frequencies.
+
+            Notes
+            -----
+            Trace definitions and trigger settings are restored after acquisition.
+            When averaging is enabled, clears and completes the configured average.
+            """
+            ports = (1, 2) if ports is None else tuple(operator.index(port) for port in ports)
+            if not ports or len(set(ports)) != len(ports) or any(port not in (1, 2) for port in ports):
+                raise ValueError("ports must contain distinct port numbers 1 or 2")
+
+            original_channel = self.query("SERV:CHAN:ACT?")
+            original_source = self.parent.trigger_source
+            original_scope = self.parent.trigger_scope
+            original_average_trigger = self.query("TRIG:AVER?")
+            original_cont = self.trigger_cont
+            original_ntraces = self.ntraces
+            original_trace = self.active_trace
+            original_params = [
+                (self.query(f"CALC{self.cnum}:PAR{trace}:DEF?").split("(")[0],
+                 self.query(f"CALC{self.cnum}:PAR{trace}:SPOR?"))
+                for trace in range(1, min(original_ntraces, len(ports)) + 1)
+            ]
+
+            try:
+                self.parent.trigger_source = TriggerSource.BUS
+                self.parent.active_channel = self
+                self.parent.trigger_scope = TriggerScope.ACTIVE
+                self.ntraces = max(original_ntraces, len(ports))
+                # A trace for each source port ensures all requested data is updated.
+                for trace, port in enumerate(ports, 1):
+                    self.write(f"CALC{self.cnum}:PAR{trace}:DEF S{port}{port}")
+
+                # One trigger completes a fresh average when averaging is enabled.
+                self.write("TRIG:AVER ON")
+                self.sweep()
+
+                frequency = self.frequency
+                s = np.empty((len(frequency), len(ports), len(ports)), dtype=complex)
+                for i, a in enumerate(ports):
+                    for j, b in enumerate(ports):
+                        s[:, i, j] = self.query_values(f"SENS{self.cnum}:DATA:CORR? S{a}{b}", complex_values=True)
+                return skrf.Network(frequency=frequency, s=s)
+            finally:
+                for trace, (parameter, port) in enumerate(original_params, 1):
+                    self.write(f"CALC{self.cnum}:PAR{trace}:DEF {parameter}")
+                    self.write(f"CALC{self.cnum}:PAR{trace}:SPOR {port}")
+                self.ntraces = original_ntraces
+                self.active_trace = original_trace
+                self.trigger_cont = original_cont
+                self.write(f"TRIG:AVER {original_average_trigger}")
+                self.parent.trigger_scope = original_scope
+                self.write(f"DISP:WIND{original_channel}:ACT")
+                self.parent.trigger_source = original_source
 
         def sweep(self) -> None:
             """Set analyzer to perform a single sweep using the current state."""
@@ -439,7 +499,7 @@ class Cobalt(vna.VNA):
 
     trigger_scope = vna.VNA.command(
         get_cmd="TRIG:SCOP?",
-        set_cmd="TRIG: SCOP <arg>",
+        set_cmd="TRIG:SCOP <arg>",
         doc="""The trigger scope determines the response on the trigger signal arrival.
         ALL triggers all channels; ACTIVE triggers the active channel.
 

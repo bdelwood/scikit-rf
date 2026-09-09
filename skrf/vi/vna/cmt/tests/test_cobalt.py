@@ -164,6 +164,9 @@ def test_trigger_modes(analyzer):
     analyzer.trigger_scope = TriggerScope.ALL
     assert analyzer.trigger_scope == TriggerScope.ALL
 
+    analyzer.trigger_scope = TriggerScope.ACTIVE
+    assert analyzer.trigger_scope == TriggerScope.ACTIVE
+
 
 def test_channel_param_def(analyzer):
     for parameter in TraceParameter:
@@ -205,3 +208,45 @@ def test_clear_and_error_queue(analyzer):
     analyzer.clear()
     err = analyzer.read_next_error()
     assert err[0] == 0
+
+
+@pytest.mark.parametrize("query_format, ntraces", [
+    (ValuesFormat.ASCII, 1), (ValuesFormat.BINARY_32, 16), (ValuesFormat.BINARY_64, 2),
+])
+def test_get_snp_network(analyzer, query_format, ntraces):
+    analyzer.allocate_channels(2)
+    ch = analyzer.ch1
+    ch.frequency = skrf.Frequency(1e6, 20e9, 11, unit="Hz")
+    ch.sweep_type = SweepType.LOG
+    ch.ntraces = ntraces
+    ch.active_trace = 1
+    ch.param_def = TraceParameter.A
+    ch.stimulus_port = 2
+    ch.active_trace = ntraces
+    ch.trigger_cont = False
+    ch.averaging_on = ntraces > 1
+    ch.averaging_count = 3
+    analyzer.query_format = query_format
+    analyzer.trigger_source = TriggerSource.BUS
+    analyzer.trigger_scope = TriggerScope.ALL
+    analyzer.active_channel = 2
+    commands = [
+        "SERV:CHAN:ACT?", "TRIG:SOUR?", "TRIG:SCOP?", "TRIG:AVER?", "INIT1:CONT?",
+        "SENS1:AVER:STATE?", "SENS1:AVER:COUN?",
+        "CALC1:PAR:COUN?", "SERV:CHAN1:TRAC:ACT?", "FORM:DATA?", "FORM:BORD?",
+        "CALC1:TRAC1:FORM?", "DISP:WIND1:TRAC1:Y:SCAL:PDIV?",
+    ]
+    commands += [f"CALC1:PAR{trace}:{setting}?"
+                 for trace in range(1, ntraces + 1) for setting in ("DEF", "SPOR")]
+    original = [analyzer.query(cmd) for cmd in commands]
+
+    network = ch.get_snp_network()
+
+    assert network.s.shape == (11, 2, 2)
+    np.testing.assert_allclose(network.f, np.geomspace(1e6, 20e9, 11), rtol=1e-6)
+    assert [analyzer.query(cmd) for cmd in commands] == original
+    for row, col in [(0, 0), (0, 1), (1, 0), (1, 1)]:
+        ch.active_trace = 1
+        ch.param_def = f"S{row + 1}{col + 1}"
+        np.testing.assert_allclose(network.s[:, row, col], ch.active_trace_sdata)
+    assert analyzer.read_next_error()[0] == 0
