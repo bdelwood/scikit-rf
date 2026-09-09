@@ -42,6 +42,14 @@ class TraceParameter(Enum):
     R2 = "R2"
 
 
+class _TraceParameterValidator(EnumValidator):
+    def validate_output(self, arg):
+        match = re.fullmatch(r"(A|B|R[12])\([12]\)", arg)
+        if match:
+            arg = match[1]
+        return super().validate_output(arg)
+
+
 class TriggerSource(Enum):
     """Four trigger sources are supported in the Cobalt series.
 
@@ -190,10 +198,22 @@ class Cobalt(vna.VNA):
         param_def = vna.VNA.command(
             get_cmd="CALC<self:cnum>:PAR<self:active_trace>:DEF?",
             set_cmd="CALC<self:cnum>:PAR<self:active_trace>:DEF <arg>",
-            doc=""""Selects the measurement parameter of the trace.
+            doc="""Selects the measurement parameter of the trace.
+
+            Receiver selections return A, B, R1, or R2. The source port is
+            read and set separately with stimulus_port.
 
             Measurement""",
-            validator=EnumValidator(TraceParameter),
+            validator=_TraceParameterValidator(TraceParameter),
+        )
+
+        stimulus_port = vna.VNA.command(
+            get_cmd="CALC<self:cnum>:PAR<self:active_trace>:SPOR?",
+            set_cmd="CALC<self:cnum>:PAR<self:active_trace>:SPOR <arg>",
+            doc="""Source port for absolute receiver measurements.
+
+            Measurement > Absolute""",
+            validator=IntValidator(1, 2),
         )
 
         trigger_cont = vna.VNA.command(

@@ -3,7 +3,7 @@ import pytest
 try:
     import pyvisa
 
-    from skrf.vi.vna.cmt.cobalt import Cobalt
+    from skrf.vi.vna.cmt.cobalt import Cobalt, TraceParameter
 except ImportError:
     pytest.skip("pyvisa not installed", allow_module_level=True)
 
@@ -43,10 +43,13 @@ def test_init_closes_resource_on_failure(resource, command):
 def test_receiver_parameter(resource, parameter):
     analyzer = Cobalt("TEST")
     resource.write.reset_mock()
+    query = resource.query.side_effect
+    resource.query.side_effect = lambda cmd: f"{parameter}(2)" if cmd == "CALC1:PAR1:DEF?" else query(cmd)
 
     analyzer.ch1.param_def = parameter
 
     resource.write.assert_called_once_with(f"CALC1:PAR1:DEF {parameter}")
+    assert analyzer.ch1.param_def == TraceParameter(parameter)
 
 
 def test_trigger_single_enables_active_channel(resource, mocker):

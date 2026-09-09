@@ -166,8 +166,15 @@ def test_trigger_modes(analyzer):
 
 
 def test_channel_param_def(analyzer):
-    analyzer.ch1.param_def = "S11"
-    assert analyzer.param_def == TraceParameter.S11
+    for parameter in TraceParameter:
+        analyzer.ch1.param_def = parameter.value
+        assert analyzer.param_def == parameter
+        if parameter in (TraceParameter.A, TraceParameter.B, TraceParameter.R1, TraceParameter.R2):
+            for port in (1, 2):
+                analyzer.ch1.stimulus_port = port
+                assert analyzer.ch1.stimulus_port == port
+                assert analyzer.param_def == parameter
+                assert analyzer.query("CALC1:PAR1:DEF?") == f"{parameter.value}({port})"
 
     with pytest.raises(ValidationError):
         analyzer.ch1.param_def = "S31"
